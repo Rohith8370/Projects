@@ -1,0 +1,71 @@
+---
+pool: Default
+
+trigger: none 
+
+pr: 
+- develop
+
+variables:
+  webproject: 'src/Presentation/Nop.Web/Nop.Web.csproj'
+  testproject: 'src/Tests/Nop.Tests/Nop.Tests.csproj'
+  buildConfiguration: 'Release'
+
+stages:
+- stage: Build
+  displayName: Building the NopCommerce
+  jobs:
+  - job: Build
+    steps:
+    - task: DotNetCoreCLI@2
+      displayName: Build NopCommerce Application
+      inputs: 
+        command: 'build'
+        projects: $(webproject)
+        arguments: '--configuration $(buildConfiguration)'
+
+    - task: DotNetCoreCLI@2
+      displayName: Publish NopCommerce Application
+      inputs: 
+        command: 'publish'
+        projects: $(webproject)
+        arguments: '-o $(Build.ArtifactStagingDirectory)/Output --configuration $(buildConfiguration)'
+        zipAfterPublish: true
+        modifyOutputPath: true
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathToPublish: '$(Build.ArtifactStagingDirectory)'
+        artifactName: drop
+
+- stage: Test
+  displayName: Testing the NopCommerce
+  jobs:
+  - job: Test
+    steps:
+    - task: DotNetCoreCLI@2
+      displayName: Run Unit Tests
+      inputs:
+        command: 'test'
+        projects: $(testproject)
+        arguments: '--configuration $(buildConfiguration)'
+  
+- stage: Deploy
+  displayName: Deploying the NopCommerce
+  jobs:
+  - deployment: DeployToProduction
+    displayName: Deploying the NopCommerce
+    dependsOn: Test
+    environment: Nop_Deployment
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+           - download: current
+             artifact: drop
+           - task: AzureWebApp@1
+             inputs:
+              azureSubscription: 'Azure subscription 1'
+              appType: 'webApp'
+              appName: nopCommerce
+              package: '$(Pipeline.Workspace)/drop/**/*.zip'
